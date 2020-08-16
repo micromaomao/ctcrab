@@ -8,7 +8,7 @@ extern crate diesel;
 mod schema;
 mod models;
 mod core;
-use crate::core::open_db;
+use crate::core::create_db_pool;
 
 #[get("/")]
 fn index() -> &'static str {
@@ -16,6 +16,6 @@ fn index() -> &'static str {
 }
 
 fn main() {
-  let db = open_db();
-  rocket::ignite().mount("/", routes![index]).launch();
+  let db_pool = create_db_pool();
+  rocket::ignite().mount("/", routes![index]).manage(db_pool).launch();
 }
