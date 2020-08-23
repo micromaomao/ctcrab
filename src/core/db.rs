@@ -1,17 +1,21 @@
 use diesel::{Connection, PgConnection, RunQueryDsl};
-use diesel::r2d2::{ConnectionManager, Pool};
+use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::result::Error;
+
+fn get_url_from_env() -> String {
+  dotenv::dotenv().ok();
+  std::env::var("DATABASE_URL").map_err(|_| "Expected DATABASE_URL env.").unwrap()
+}
 
 pub type DBConn = PgConnection;
 pub fn open_db() -> DBConn {
-  dotenv::dotenv().ok();
-  let db_url = std::env::var("DATABASE_URL").unwrap();
-  DBConn::establish(&db_url).unwrap()
+  DBConn::establish(&get_url_from_env()).unwrap()
 }
 
-pub fn create_db_pool() -> Pool<ConnectionManager<DBConn>> {
-  let db_url = std::env::var("DATABASE_URL").unwrap();
-  Pool::builder().max_size(1).build(ConnectionManager::new(&db_url)).unwrap()
+pub type DBPool = Pool<ConnectionManager<DBConn>>;
+pub type DBPooledConn = PooledConnection<ConnectionManager<DBConn>>;
+pub fn create_db_pool() -> DBPool {
+  Pool::builder().max_size(1).build(ConnectionManager::new(&get_url_from_env())).unwrap()
 }
 
 use diesel::result::Error as DieselError;

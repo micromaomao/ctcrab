@@ -6,8 +6,8 @@ use diesel::RunQueryDsl;
 
 use models::Hash;
 
-use crate::core::open_db;
-use crate::core::PgConnectionHelper;
+use crate::core::db::open_db;
+use crate::core::db::PgConnectionHelper;
 
 mod schema;
 mod models;

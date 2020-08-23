@@ -1,14 +1,15 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
 #[macro_use]
-extern crate rocket;
-#[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate rocket;
+
+use crate::core::context::CtCrabContext;
 
 mod schema;
 mod models;
 mod core;
-use crate::core::create_db_pool;
 
 #[get("/")]
 fn index() -> &'static str {
@@ -16,6 +17,9 @@ fn index() -> &'static str {
 }
 
 fn main() {
-  let db_pool = create_db_pool();
-  rocket::ignite().mount("/", routes![index]).manage(db_pool).launch();
+  let ctx = match CtCrabContext::new() {
+    Ok(ctx) => ctx,
+    Err(e) => panic!("{}", e)
+  };
+  rocket::ignite().mount("/", routes![index]).manage(ctx).launch();
 }

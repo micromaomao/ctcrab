@@ -1,6 +1,9 @@
 use std::convert::TryInto;
+use std::fmt;
+use std::fmt::Display;
 use std::io::Write;
 
+use ctclient::utils::u8_to_hex;
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
 use diesel::serialize::{Output, ToSql};
@@ -26,14 +29,14 @@ macro_rules! impl_sql_binary_type {
   };
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, AsExpression)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, FromSqlRow, AsExpression)]
 #[sql_type="Binary"]
 pub struct Hash(pub [u8; 32]);
 impl_sql_binary_type!(Hash);
 impl Serialize for Hash {
   fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
       S: Serializer {
-    serializer.serialize_str(&ctclient::utils::u8_to_hex(&self.0))
+    serializer.serialize_str(&u8_to_hex(&self.0))
   }
 }
 impl<'de> Deserialize<'de> for Hash {
@@ -77,7 +80,13 @@ impl<'de> Deserialize<'de> for Hash {
   }
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, AsExpression)]
+impl Display for Hash {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", u8_to_hex(&self.0))
+  }
+}
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, FromSqlRow, AsExpression)]
 #[sql_type="Binary"]
 pub struct BytesWithBase64Repr(pub Vec<u8>);
 impl_sql_binary_type!(BytesWithBase64Repr);
