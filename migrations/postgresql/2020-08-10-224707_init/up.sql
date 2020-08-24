@@ -4,22 +4,22 @@ CREATE TABLE ctlogs (
     "name" text NOT NULL,
     "public_key" bytea NOT NULL,
     "monitoring" boolean NOT NULL,
-    "latest_tree_hash" bytea DEFAULT NULL,
-    "latest_tree_size" bigint DEFAULT NULL,
-    "backward_tree_hash" bytea DEFAULT NULL,
-    "backward_tree_size" bigint DEFAULT NULL
+    "latest_sth" bigint DEFAULT NULL,
+    "last_sth_error" text DEFAULT NULL
 );
 
 CREATE TABLE sth (
     "id" bigserial UNIQUE NOT NULL PRIMARY KEY,
     "log_id" bytea NOT NULL REFERENCES ctlogs("log_id"),
     "tree_hash" bytea NOT NULL,
-    "tree_size" bytea NOT NULL,
+    "tree_size" bigint NOT NULL,
     "sth_timestamp" bigint NOT NULL, -- ms
     "received_time" timestamp with time zone NOT NULL DEFAULT 'now',
     "signature" bytea NOT NULL,
-    "consistent_with_latest" boolean NOT NULL DEFAULT false
+    "checked_consistent_with_latest" boolean NOT NULL DEFAULT false
 );
+
+ALTER TABLE ctlogs ADD FOREIGN KEY ("latest_sth") REFERENCES sth("id");
 
 CREATE UNIQUE INDEX sth_i ON sth ("tree_size", "tree_hash", "sth_timestamp");
 
