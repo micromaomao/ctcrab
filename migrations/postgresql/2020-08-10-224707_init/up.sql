@@ -21,7 +21,8 @@ CREATE TABLE sth (
 
 ALTER TABLE ctlogs ADD FOREIGN KEY ("latest_sth") REFERENCES sth("id");
 
-CREATE UNIQUE INDEX sth_i ON sth ("tree_size", "tree_hash", "sth_timestamp");
+CREATE UNIQUE INDEX sth_i ON sth ("log_id", "tree_size", "tree_hash", "sth_timestamp");
+CREATE INDEX sth_unchecked ON sth ("log_id", "tree_size") WHERE "checked_consistent_with_latest" = false;
 
 CREATE TABLE consistency_check_errors (
     "id" bigserial UNIQUE NOT NULL PRIMARY KEY,

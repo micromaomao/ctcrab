@@ -35,8 +35,6 @@ impl From<E> for String {
 }
 
 fn main() -> Result<(), E> {
-  env_logger::init();
-
   let db = open_db();
   let ll = ctclient::google_log_list::LogList::get().map_err(|_| E::UnableToFetchLogList)?;
   use schema::ctlogs::dsl::*;

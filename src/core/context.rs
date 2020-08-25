@@ -1,12 +1,9 @@
+use std::error::Error;
 use std::mem::MaybeUninit;
-use std::sync::{Arc, Mutex};
-
-use diesel::QueryDsl;
+use std::sync::Mutex;
 
 use crate::core::db::{create_db_pool, DBPool, DBPooledConn};
 use crate::core::update_thread;
-use std::error::Error;
-use std::intrinsics::transmute;
 
 pub struct CtCrabContext {
   db_pool: MaybeUninit<&'static DBPool>,

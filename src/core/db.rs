@@ -1,4 +1,4 @@
-use diesel::{Connection, PgConnection, RunQueryDsl};
+use diesel::{Connection, PgConnection};
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::result::Error;
 

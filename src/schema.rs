@@ -28,10 +28,8 @@ table! {
         name -> Text,
         public_key -> Bytea,
         monitoring -> Bool,
-        latest_tree_hash -> Nullable<Bytea>,
-        latest_tree_size -> Nullable<Int8>,
-        backward_tree_hash -> Nullable<Bytea>,
-        backward_tree_size -> Nullable<Int8>,
+        latest_sth -> Nullable<Int8>,
+        last_sth_error -> Nullable<Text>,
     }
 }
 
@@ -47,11 +45,11 @@ table! {
         id -> Int8,
         log_id -> Bytea,
         tree_hash -> Bytea,
-        tree_size -> Bytea,
+        tree_size -> Int8,
         sth_timestamp -> Int8,
         received_time -> Timestamptz,
         signature -> Bytea,
-        consistent_with_latest -> Bool,
+        checked_consistent_with_latest -> Bool,
     }
 }
 
@@ -59,7 +57,6 @@ joinable!(cert_fetch_errors -> ctlogs (log_id));
 joinable!(consistency_check_errors -> ctlogs (log_id));
 joinable!(retired_log_changed_error -> ctlogs (log_id));
 joinable!(retired_log_changed_error -> sth (latest_sth));
-joinable!(sth -> ctlogs (log_id));
 
 allow_tables_to_appear_in_same_query!(
     cert_fetch_errors,
