@@ -23,7 +23,7 @@ macro_rules! impl_sql_binary_type {
     impl<DB: Backend<RawValue = [u8]>> FromSql<Binary, DB> for $type_name {
       fn from_sql(bytes: Option<&<DB as Backend>::RawValue>) -> diesel::deserialize::Result<Self> {
         let vv: Vec<u8> = FromSql::<Binary, DB>::from_sql(bytes)?;
-        Ok(Self(vv[..].try_into().map_err(|e| Box::new(e))?))
+        Ok(Self(vv[..].try_into().map_err(Box::new)?))
       }
     }
   };

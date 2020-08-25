@@ -1,13 +1,10 @@
-use std::time::SystemTime;
-
-use serde::Serialize;
+use diesel::Connection;
+use diesel::pg::Pg;
+use diesel::pg::types::date_and_time::PgTimestamp;
 
 pub use bytea_t::*;
 
 use crate::schema::*;
-use diesel::Connection;
-use diesel::pg::Pg;
-use diesel::pg::types::date_and_time::PgTimestamp;
 
 mod bytea_t;
 pub mod inserts;

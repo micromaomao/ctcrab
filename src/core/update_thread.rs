@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-use std::error::Error;
 use std::mem::{MaybeUninit, replace};
 use std::panic::AssertUnwindSafe;
 use std::sync::mpsc;
@@ -8,10 +6,9 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use ctclient::{CTClient, SignedTreeHead, SthResult};
-use log::info;
 use thiserror::Error;
 
-use crate::core::db::{DBPool, DBPooledConn, PgConnectionHelper};
+use crate::core::db::{DBPool, PgConnectionHelper};
 use crate::models::{CtLog, Hash, Sth};
 
 enum ChannelMessage {
@@ -122,7 +119,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
         })
       };
 
-      let mut advance_latest_sth = |new_latest: &FetchedSth| {
+      let advance_latest_sth = |new_latest: &FetchedSth| {
         let db = get_db!();
         db.transaction_rw_serializable::<(), diesel::result::Error, _>(|| {
           diesel::update(sth)
@@ -142,7 +139,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
                   .and(sth_log_id.eq(&log.log_id))
                   .and(tree_size.le(new_latest.sth.tree_size as i64))
             ).load(&db).unwrap_or_display_err();
-        for s in sth_to_check {
+        for _s in sth_to_check {
           unimplemented!();
         }
       };
@@ -191,7 +188,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
             advance_latest_sth(&new_sth);
             last_fetched_sth = Some(new_sth);
           },
-          Some(old_sth) => {
+          Some(_old_sth) => {
             unimplemented!()
           }
         }
