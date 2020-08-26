@@ -15,10 +15,11 @@ pub fn open_db() -> DBConn {
 pub type DBPool = Pool<ConnectionManager<DBConn>>;
 pub type DBPooledConn = PooledConnection<ConnectionManager<DBConn>>;
 pub fn create_db_pool() -> DBPool {
-  Pool::builder().max_size(1).build(ConnectionManager::new(&get_url_from_env())).unwrap()
+  Pool::builder().max_size(20).build(ConnectionManager::new(&get_url_from_env())).unwrap()
 }
 
 use diesel::result::Error as DieselError;
+use std::time::Duration;
 
 pub trait PgConnectionHelper {
   fn transaction_rw_serializable<T, E: From<DieselError>, F: FnMut() -> Result<T, E>>(&self, f: F) -> Result<T, E>;
@@ -42,14 +43,10 @@ impl PgConnectionHelper for PgConnection {
       });
       match res {
         Ok(r) => return Ok(r),
-        Err(RunErr::Db(diesel_err @ diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::SerializationFailure, _))) => {
+        Err(_) if nb_tries < 5 => {
           nb_tries += 1;
-          if nb_tries > 5 {
-            return Err(diesel_err.into());
-          } else {
-            std::thread::yield_now();
-            continue;
-          }
+          std::thread::sleep(Duration::from_millis(5u64 * 2u64.pow(nb_tries)));
+          continue;
         },
         Err(RunErr::Db(db_err @ diesel::result::Error::DatabaseError(_, _))) => panic!("db error: {}. May cause connection corruption, hence panicking.", db_err),
         Err(RunErr::Db(e)) => return Err(e.into()),

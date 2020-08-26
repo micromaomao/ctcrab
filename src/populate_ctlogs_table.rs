@@ -1,3 +1,4 @@
+#![feature(label_break_value)]
 #[macro_use]
 extern crate diesel;
 

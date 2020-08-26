@@ -8,7 +8,7 @@ use std::time::Duration;
 use ctclient::{CTClient, SignedTreeHead, SthResult};
 use thiserror::Error;
 
-use crate::core::db::{DBPool, PgConnectionHelper};
+use crate::core::db::{DBPool, PgConnectionHelper, DBPooledConn};
 use crate::models::{CtLog, Hash, Sth};
 
 enum ChannelMessage {
@@ -75,7 +75,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
         #[error("Tree size larger than i64::MAX are not supported.")]
         TreeSizeTooLarge
       }
-      let fetch_sth = || -> Result<FetchedSth, FetchSthError> {
+      let fetch_sth = |db: &DBPooledConn| -> Result<FetchedSth, FetchSthError> {
         let th = ctclient::internal::check_tree_head(
           &http_client,
           &parsed_url,
@@ -84,7 +84,6 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
         if th.tree_size > i64::MAX as u64 {
           return Err(FetchSthError::TreeSizeTooLarge);
         }
-        let db = get_db!();
         let ins = crate::models::inserts::Sth {
           log_id: log.log_id,
           tree_hash: Hash(th.root_hash),
@@ -98,7 +97,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
               .values(&ins)
               .on_conflict_do_nothing()
               .returning(sth_id)
-              .get_results(&db)?;
+              .get_results(db)?;
           if res.is_empty() {
             // already exists
             let existing_id: Vec<i64> = sth.select(sth_id)
@@ -107,7 +106,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
                       .and(tree_size.eq(ins.tree_size))
                       .and(tree_hash.eq(ins.tree_hash))
                       .and(sth_timestamp.eq(ins.sth_timestamp)))
-                .load(&db)?;
+                .load(db)?;
             Ok(existing_id[0])
           } else {
             Ok(res[0])
@@ -119,37 +118,103 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
         })
       };
 
-      let advance_latest_sth = |new_latest: &FetchedSth| {
-        let db = get_db!();
-        db.transaction_rw_serializable::<(), diesel::result::Error, _>(|| {
-          diesel::update(sth)
-              .filter(sth_id.eq(new_latest.stored_as_id))
-              .set(checked_consistent_with_latest.eq(true))
-              .execute(&db)?;
-          diesel::update(ctlogs)
-              .filter(ctlogs_log_id.eq(&log.log_id))
-              .set(latest_sth.eq(new_latest.stored_as_id))
-              .execute(&db)?;
-          Ok(())
-        }).unwrap_or_display_err();
-
+      let check_unchecked_consistency = |db: &DBPooledConn, latest: &FetchedSth| {
         let sth_to_check: Vec<Sth> =
             sth.filter(
               checked_consistent_with_latest.eq(false)
                   .and(sth_log_id.eq(&log.log_id))
-                  .and(tree_size.le(new_latest.sth.tree_size as i64))
-            ).load(&db).unwrap_or_display_err();
-        for _s in sth_to_check {
-          unimplemented!();
+                  .and(tree_size.le(latest.sth.tree_size as i64))
+            ).load(db).unwrap_or_display_err();
+        for s in sth_to_check {
+          let s_id = s.id;
+          let s = SignedTreeHead {
+            tree_size: s.tree_size as u64,
+            timestamp: s.sth_timestamp as u64,
+            root_hash: s.tree_hash.0,
+            signature: s.signature.0.clone()
+          };
+          use std::cmp::Ordering::*;
+          let mut pass = false;
+          match s.tree_size.cmp(&latest.sth.tree_size) {
+            Greater => unreachable!(),
+            Equal => {
+              if s.root_hash == latest.sth.root_hash {
+                pass = true;
+              } else {
+                crate::models::inserts::ConsistencyCheckError::upsert(
+                  db,
+                  log.log_id,
+                  s_id,
+                  latest.stored_as_id,
+                  "Different hash but same tree size."
+                ).unwrap_or_display_err();
+              }
+            },
+            Less => {
+              match ctclient::internal::check_consistency_proof(
+                &http_client,
+                &parsed_url,
+                s.tree_size,
+                latest.sth.tree_size,
+                &s.root_hash,
+                &latest.sth.root_hash
+              ) {
+                Ok(_) => {
+                  pass = true;
+                },
+                Err(e) => {
+                  crate::models::inserts::ConsistencyCheckError::upsert(
+                    db,
+                    log.log_id,
+                    s_id,
+                    latest.stored_as_id,
+                    &format!("{}", e)
+                  ).unwrap_or_display_err();
+                }
+              }
+            }
+          }
+          if pass {
+            diesel::update(sth)
+                .filter(sth_id.eq(s_id))
+                .set(checked_consistent_with_latest.eq(true))
+                .execute(db).unwrap_or_display_err();
+            {
+              use crate::schema::consistency_check_errors::dsl;
+              diesel::delete(dsl::consistency_check_errors)
+                  .filter(
+                    dsl::log_id.eq(&log.log_id)
+                        .and(dsl::from_sth_id.eq(s_id))
+                        .and(dsl::to_sth_id.eq(latest.stored_as_id))
+                  )
+                  .execute(db).unwrap_or_display_err();
+            }
+          }
         }
       };
 
+      let advance_latest_sth = |db: &DBPooledConn, new_latest: &FetchedSth| {
+        db.transaction_rw_serializable::<(), diesel::result::Error, _>(|| {
+          diesel::update(sth)
+              .filter(sth_id.eq(new_latest.stored_as_id))
+              .set(checked_consistent_with_latest.eq(true))
+              .execute(db)?;
+          diesel::update(ctlogs)
+              .filter(ctlogs_log_id.eq(&log.log_id))
+              .set(latest_sth.eq(new_latest.stored_as_id))
+              .execute(db)?;
+          Ok(())
+        }).unwrap_or_display_err();
+        check_unchecked_consistency(db, new_latest);
+      };
+
       let mut last_fetched_sth: Option<FetchedSth> = None;
+      let mut current_db_hdl: Option<DBPooledConn> = Some(get_db!());
       if let Some(latest_sth_id) = log.latest_sth {
-        let db = get_db!();
+        let db = current_db_hdl.as_ref().unwrap();
         let mut stored_sth: Vec<Sth> = sth
             .filter(sth_id.eq(latest_sth_id))
-            .load(&db).unwrap_or_display_err();
+            .load(db).unwrap_or_display_err();
         assert_eq!(stored_sth.len(), 1);
         assert!(stored_sth[0].checked_consistent_with_latest);
         let stored_sth = stored_sth.swap_remove(0);
@@ -165,42 +230,82 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
       }
 
       loop {
-        let new_sth = match fetch_sth() {
+        if current_db_hdl.is_none() {
+          current_db_hdl = Some(get_db!());
+        }
+        let db = current_db_hdl.as_ref().unwrap();
+        let new_sth = match fetch_sth(db) {
           Ok(s) => {
-            let db = get_db!();
             diesel::update(ctlogs)
                 .filter(ctlogs_log_id.eq(&log.log_id))
                 .set(last_sth_error.eq(None::<String>))
-                .execute(&db).unwrap_or_display_err();
+                .execute(db).unwrap_or_display_err();
             s
           },
           Err(e) => {
-            let db = get_db!();
             diesel::update(ctlogs)
                 .filter(ctlogs_log_id.eq(&log.log_id))
                 .set(last_sth_error.eq(format!("{}", e)))
-                .execute(&db).unwrap_or_display_err();
+                .execute(db).unwrap_or_display_err();
             continue;
           }
         };
         match last_fetched_sth {
           None => {
-            advance_latest_sth(&new_sth);
+            advance_latest_sth(db, &new_sth);
             last_fetched_sth = Some(new_sth);
           },
-          Some(_old_sth) => {
-            unimplemented!()
+          Some(ref old_sth) => {
+            use std::cmp::Ordering::*;
+            match new_sth.sth.tree_size.cmp(&old_sth.sth.tree_size) {
+              Less | Equal => {
+                check_unchecked_consistency(db, &old_sth);
+              },
+              Greater => 'o : {
+                let consistency_proof_parts_res = ctclient::internal::check_consistency_proof(
+                  &http_client,
+                  &parsed_url,
+                  old_sth.sth.tree_size,
+                  new_sth.sth.tree_size,
+                  &old_sth.sth.root_hash,
+                  &new_sth.sth.root_hash
+                );
+                if let Err(e) = consistency_proof_parts_res {
+                  crate::models::inserts::ConsistencyCheckError::upsert(
+                    db,
+                    log.log_id,
+                    old_sth.stored_as_id,
+                    new_sth.stored_as_id,
+                    &format!("{}", e),
+                  ).unwrap_or_display_err();
+                  break 'o;
+                }
+                let _consistency_proof_parts = consistency_proof_parts_res.unwrap();
+                // todo: fetch certs
+                advance_latest_sth(db, &new_sth);
+                last_fetched_sth = Some(new_sth);
+              }
+            }
           }
         }
 
-        match recv.recv_timeout(Duration::from_secs(5)) {
-          Err(mpsc::RecvTimeoutError::Timeout) => {}
-          r @ Err(_) => { r.unwrap(); }
-          Ok(msg) => {
-            match msg {
-              ChannelMessage::Stop => {
-                return;
+        'o: for &it in &[false, true] {
+          let sleep_time = match it {
+            false => 250,
+            true => 4750
+          };
+          match recv.recv_timeout(Duration::from_millis(sleep_time)) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+              current_db_hdl = None;
+            }
+            r @ Err(_) => { r.unwrap(); }
+            Ok(msg) => {
+              match msg {
+                ChannelMessage::Stop => {
+                  return;
+                }
               }
+              break 'o;
             }
           }
         }

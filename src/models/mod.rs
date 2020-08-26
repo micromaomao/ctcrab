@@ -22,11 +22,11 @@ pub struct CtLog {
 }
 
 impl CtLog {
-  fn get_latest_sth<C: Connection<Backend = Pg>>(&self, db: C) -> Result<Option<Sth>, diesel::result::Error> {
+  fn get_latest_sth<C: Connection<Backend = Pg>>(&self, db: &C) -> Result<Option<Sth>, diesel::result::Error> {
     use diesel::prelude::*;
     match self.latest_sth {
       Some(sth_id) => {
-        let mut sths: Vec<Sth> = sth::dsl::sth.filter(sth::dsl::id.eq(sth_id)).load(&db)?;
+        let mut sths: Vec<Sth> = sth::dsl::sth.filter(sth::dsl::id.eq(sth_id)).load(db)?;
         Ok(Some(sths.swap_remove(0)))
       },
       None => Ok(None)

@@ -14,7 +14,7 @@ CREATE TABLE sth (
     "tree_hash" bytea NOT NULL,
     "tree_size" bigint NOT NULL,
     "sth_timestamp" bigint NOT NULL, -- ms
-    "received_time" timestamp with time zone NOT NULL DEFAULT 'now',
+    "received_time" timestamp with time zone NOT NULL DEFAULT now(),
     "signature" bytea NOT NULL,
     "checked_consistent_with_latest" boolean NOT NULL DEFAULT false
 );
@@ -29,17 +29,19 @@ CREATE TABLE consistency_check_errors (
     "log_id" bytea NOT NULL REFERENCES ctlogs("log_id"),
     "from_sth_id" bigint NOT NULL REFERENCES sth("id"),
     "to_sth_id" bigint NOT NULL REFERENCES sth("id"),
-    "discovery_time" timestamp with time zone NOT NULL DEFAULT 'now',
-    "last_check_time" timestamp with time zone NOT NULL,
+    "discovery_time" timestamp with time zone NOT NULL DEFAULT now(),
+    "last_check_time" timestamp with time zone NOT NULL DEFAULT now(),
     "last_check_error" text NOT NULL
 );
+
+CREATE UNIQUE INDEX consistency_check_errors_i ON consistency_check_errors ("log_id", "to_sth_id", "from_sth_id");
 
 CREATE TABLE cert_fetch_errors (
     "id" bigserial UNIQUE NOT NULL PRIMARY KEY,
     "log_id" bytea NOT NULL REFERENCES ctlogs("log_id"),
     "from_tree_size" bigint NOT NULL,
     "to_tree_size" bigint NOT NULL,
-    "error_time" timestamp with time zone NOT NULL DEFAULT 'now',
+    "error_time" timestamp with time zone NOT NULL DEFAULT now(),
     "resolved" boolean DEFAULT false
 );
 
