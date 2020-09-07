@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::mem::{MaybeUninit, replace};
 use std::panic::AssertUnwindSafe;
 use std::sync::mpsc;
@@ -6,9 +7,11 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use ctclient::{CTClient, SignedTreeHead, SthResult};
+use ctclient::internal::Leaf;
+use diesel::prelude::*;
 use thiserror::Error;
 
-use crate::core::db::{DBPool, PgConnectionHelper, DBPooledConn};
+use crate::core::db::{DBPool, DBPooledConn, PgConnectionHelper};
 use crate::models::{CtLog, Hash, Sth};
 
 enum ChannelMessage {
@@ -27,6 +30,21 @@ impl Drop for Handle {
   }
 }
 
+trait _DbErrorUnwrapHelper {
+  type Inner;
+  fn unwrap_or_display_err(self) -> Self::Inner;
+}
+impl<T> _DbErrorUnwrapHelper for Result<T, diesel::result::Error> {
+  type Inner = T;
+
+  fn unwrap_or_display_err(self) -> T {
+    match self {
+      Ok(t) => t,
+      Err(e) => panic!("Database error: {}", e)
+    }
+  }
+}
+
 pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
   let (sender, recv) = mpsc::channel::<ChannelMessage>();
   let jh = thread::Builder::new().name(format!("update-{}", &log.log_id)).spawn(move || {
@@ -38,20 +56,6 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
             Err(e) => panic!("Error opening db: {}", e)
           }
         };
-      }
-      trait Helper {
-        type Inner;
-        fn unwrap_or_display_err(self) -> Self::Inner;
-      }
-      impl<T> Helper for Result<T, diesel::result::Error> {
-        type Inner = T;
-
-        fn unwrap_or_display_err(self) -> T {
-          match self {
-            Ok(t) => t,
-            Err(e) => panic!("Database error: {}", e)
-          }
-        }
       }
 
       use diesel::prelude::*;
@@ -280,10 +284,63 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
                   ).unwrap_or_display_err();
                   break 'o;
                 }
-                let _consistency_proof_parts = consistency_proof_parts_res.unwrap();
-                // todo: fetch certs
-                advance_latest_sth(db, &new_sth);
-                last_fetched_sth = Some(new_sth);
+                use crate::schema::cert_fetch_errors::dsl as cfe;
+                let consistency_proof_parts = consistency_proof_parts_res.unwrap();
+                let mut leaf_hashs = Vec::with_capacity(usize::try_from(new_sth.sth.tree_size - old_sth.sth.tree_size).unwrap());
+                let mut has_error = false;
+                macro_rules! cfe_insert {
+                    ($e:expr) => {
+                      let ins = crate::models::inserts::CertFetchError {
+                        log_id: log.log_id,
+                        from_tree_size: old_sth.sth.tree_size as i64,
+                        to_tree_size: new_sth.sth.tree_size as i64,
+                        error_msg: &format!("{}", $e)
+                      };
+                      diesel::insert_into(cfe::cert_fetch_errors)
+                          .values(&ins)
+                          .execute(db).unwrap_or_display_err();
+                      has_error = true;
+                    };
+                }
+                macro_rules! cfe_try {
+                    ($r:expr) => {
+                      match $r {
+                        Ok(k) => k,
+                        Err(e) => {
+                          cfe_insert!(e);
+                          break 'o;
+                        }
+                      }
+                    };
+                }
+                let mut leid = old_sth.sth.tree_size;
+                for le in ctclient::internal::get_entries(&http_client, &parsed_url, old_sth.sth.tree_size..new_sth.sth.tree_size) {
+                  let le = cfe_try!(le);
+                  leaf_hashs.push(le.hash);
+                  if let Err(e) = check_cert(db, log.log_id, &le, leid) {
+                    cfe_insert!(format!("Certificate error (leaf #{}={}): {}", leid, ctclient::utils::u8_to_hex(&le.hash), e));
+                  }
+                  leid += 1;
+                }
+                assert_eq!(leaf_hashs.len(), (new_sth.sth.tree_size - old_sth.sth.tree_size) as usize);
+                for proof_part in consistency_proof_parts {
+                  assert!(proof_part.subtree.0 >= old_sth.sth.tree_size);
+                  assert!(proof_part.subtree.1 <= new_sth.sth.tree_size);
+                  if let Err(mut e) = proof_part.verify(&leaf_hashs[(proof_part.subtree.0 - old_sth.sth.tree_size) as usize..(proof_part.subtree.1 - old_sth.sth.tree_size) as usize]) {
+                    e.insert_str(0, "Fetched leaf does not match consistency proof: ");
+                    cfe_insert!(e);
+                    break 'o;
+                  }
+                }
+                if !has_error {
+                  advance_latest_sth(db, &new_sth);
+                  diesel::delete(cfe::cert_fetch_errors)
+                      .filter(
+                        cfe::from_tree_size.eq(old_sth.sth.tree_size as i64)
+                            .and(cfe::to_tree_size.eq(new_sth.sth.tree_size as i64))
+                      ).execute(db).unwrap_or_display_err();
+                  last_fetched_sth = Some(new_sth);
+                }
               }
             }
           }
@@ -320,3 +377,21 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
   Handle { jh: MaybeUninit::new(jh), sender }
 }
 
+fn check_cert(db: &DBPooledConn, logid: Hash, leaf: &Leaf, leaf_index: u64) -> Result<(), String> {
+  let chain = leaf.verify_and_get_x509_chain().map_err(|e| format!("{}", e))?;
+  db.build_transaction().read_committed().run(|| -> Result<(), diesel::result::Error> {
+    let fp = crate::models::inserts::insert_x509_and_chain(db, &chain)?;
+    use crate::schema::certificate_appears_in_leaf::dsl::certificate_appears_in_leaf;
+    diesel::insert_into(certificate_appears_in_leaf)
+        .values(crate::models::inserts::CertificateAppearsInLeaf {
+          leaf_hash: Hash(leaf.hash),
+          cert_fp: fp,
+          log_id: logid,
+          leaf_index: leaf_index as i64
+        })
+        .on_conflict_do_nothing()
+        .execute(db)?;
+    Ok(())
+  }).unwrap_or_display_err();
+  Ok(())
+}

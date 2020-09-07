@@ -42,10 +42,45 @@ CREATE TABLE cert_fetch_errors (
     "from_tree_size" bigint NOT NULL,
     "to_tree_size" bigint NOT NULL,
     "error_time" timestamp with time zone NOT NULL DEFAULT now(),
-    "resolved" boolean DEFAULT false
+    "error_msg" text NOT NULL
 );
+
+CREATE TABLE certificates (
+    "fingerprint" bytea UNIQUE NOT NULL PRIMARY KEY, -- sha256
+    "x509" bytea NOT NULL -- der blob
+);
+
+CREATE TABLE certificate_chain (
+    "__pk" bigserial UNIQUE NOT NULL PRIMARY KEY,
+    "certificate_fingerprint" bytea NOT NULL REFERENCES certificates("fingerprint"),
+    "chain" bytea[] NOT NULL -- der blobs of parents
+);
+
+-- CREATE UNIQUE INDEX certificate_chain_dup_check ON certificate_chain ("certificate_fingerprint", "chain");
+-- FIXME: the above index will fail if chain gets too large.
+
+CREATE TABLE certificate_appears_in_leaf (
+    "__pk" bigserial UNIQUE NOT NULL PRIMARY KEY,
+    "leaf_hash" bytea NOT NULL,
+    "cert_fp" bytea NOT NULL REFERENCES "certificates"("fingerprint"),
+    "log_id" bytea NOT NULL REFERENCES "ctlogs"("log_id"),
+    "leaf_index" bigint NOT NULL
+);
+
+CREATE INDEX certificate_appears_in_leaf_by_cert ON certificate_appears_in_leaf ("cert_fp", "log_id");
+CREATE UNIQUE INDEX certificate_appears_in_leaf_by_leaf ON certificate_appears_in_leaf ("log_id", "leaf_index");
+CREATE UNIQUE INDEX certificate_appears_in_leaf_by_leaf_hash ON certificate_appears_in_leaf ("log_id", "leaf_hash");
 
 CREATE TABLE retired_log_changed_error (
     "log_id" bytea UNIQUE NOT NULL PRIMARY KEY REFERENCES ctlogs("log_id"),
     "latest_sth" bigint NOT NULL REFERENCES sth("id")
 );
+
+CREATE TABLE certificate_dns_names (
+    "__pk" bigserial UNIQUE NOT NULL PRIMARY KEY,
+    "cert_fp" bytea NOT NULL REFERENCES "certificates"("fingerprint"),
+    "dns_name" text NOT NULL
+);
+
+CREATE INDEX certificate_dns_names_suffix_ind ON certificate_dns_names (reverse("dns_name"));
+CREATE UNIQUE INDEX certificate_dns_names_dup_check ON certificate_dns_names ("cert_fp", "dns_name");
