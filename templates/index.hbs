@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Monitoring {{nb_logs}} logs</title>
+	</head>
+	<body>
+		<ul>
+			{{#each ctlogs}}
+				<li>
+					<span class="name">{{name}}</span>
+					<span class="hash">{{latest_sth.tree_hash}}</span>
+				</li>
+			{{/each}}
+		</ul>
+	</body>
+</html>

@@ -9,7 +9,6 @@ use std::time::Duration;
 use ctclient::{CTClient, SignedTreeHead, SthResult};
 use ctclient::internal::Leaf;
 use diesel::prelude::*;
-use thiserror::Error;
 
 use crate::core::db::{DBPool, DBPooledConn, PgConnectionHelper};
 use crate::models::{CtLog, Hash, Sth};
@@ -45,7 +44,7 @@ impl<T> _DbErrorUnwrapHelper for Result<T, diesel::result::Error> {
   }
 }
 
-pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
+pub fn init_thread(db_pool: DBPool, log: CtLog) -> Handle {
   let (sender, recv) = mpsc::channel::<ChannelMessage>();
   let jh = thread::Builder::new().name(format!("update-{}", &log.log_id)).spawn(move || {
     match std::panic::catch_unwind(AssertUnwindSafe(move || {
@@ -234,61 +233,63 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
       }
 
       loop {
-        if current_db_hdl.is_none() {
-          current_db_hdl = Some(get_db!());
-        }
-        let db = current_db_hdl.as_ref().unwrap();
-        let new_sth = match fetch_sth(db) {
-          Ok(s) => {
-            diesel::update(ctlogs)
-                .filter(ctlogs_log_id.eq(&log.log_id))
-                .set(last_sth_error.eq(None::<String>))
-                .execute(db).unwrap_or_display_err();
-            s
-          },
-          Err(e) => {
-            diesel::update(ctlogs)
-                .filter(ctlogs_log_id.eq(&log.log_id))
-                .set(last_sth_error.eq(format!("{}", e)))
-                .execute(db).unwrap_or_display_err();
-            continue;
+        'a: {
+          if current_db_hdl.is_none() {
+            current_db_hdl = Some(get_db!());
           }
-        };
-        match last_fetched_sth {
-          None => {
-            advance_latest_sth(db, &new_sth);
-            last_fetched_sth = Some(new_sth);
-          },
-          Some(ref old_sth) => {
-            use std::cmp::Ordering::*;
-            match new_sth.sth.tree_size.cmp(&old_sth.sth.tree_size) {
-              Less | Equal => {
-                check_unchecked_consistency(db, &old_sth);
-              },
-              Greater => 'o : {
-                let consistency_proof_parts_res = ctclient::internal::check_consistency_proof(
-                  &http_client,
-                  &parsed_url,
-                  old_sth.sth.tree_size,
-                  new_sth.sth.tree_size,
-                  &old_sth.sth.root_hash,
-                  &new_sth.sth.root_hash
-                );
-                if let Err(e) = consistency_proof_parts_res {
-                  crate::models::inserts::ConsistencyCheckError::upsert(
-                    db,
-                    log.log_id,
-                    old_sth.stored_as_id,
-                    new_sth.stored_as_id,
-                    &format!("{}", e),
-                  ).unwrap_or_display_err();
-                  break 'o;
-                }
-                use crate::schema::cert_fetch_errors::dsl as cfe;
-                let consistency_proof_parts = consistency_proof_parts_res.unwrap();
-                let mut leaf_hashs = Vec::with_capacity(usize::try_from(new_sth.sth.tree_size - old_sth.sth.tree_size).unwrap());
-                let mut has_error = false;
-                macro_rules! cfe_insert {
+          let db = current_db_hdl.as_ref().unwrap();
+          let new_sth = match fetch_sth(db) {
+            Ok(s) => {
+              diesel::update(ctlogs)
+                  .filter(ctlogs_log_id.eq(&log.log_id))
+                  .set(last_sth_error.eq(None::<String>))
+                  .execute(db).unwrap_or_display_err();
+              s
+            },
+            Err(e) => {
+              diesel::update(ctlogs)
+                  .filter(ctlogs_log_id.eq(&log.log_id))
+                  .set(last_sth_error.eq(format!("{}", e)))
+                  .execute(db).unwrap_or_display_err();
+              current_db_hdl = None;
+              break 'a;
+            }
+          };
+          match last_fetched_sth {
+            None => {
+              advance_latest_sth(db, &new_sth);
+              last_fetched_sth = Some(new_sth);
+            },
+            Some(ref old_sth) => {
+              use std::cmp::Ordering::*;
+              match new_sth.sth.tree_size.cmp(&old_sth.sth.tree_size) {
+                Less | Equal => {
+                  check_unchecked_consistency(db, &old_sth);
+                },
+                Greater => 'o : {
+                  let consistency_proof_parts_res = ctclient::internal::check_consistency_proof(
+                    &http_client,
+                    &parsed_url,
+                    old_sth.sth.tree_size,
+                    new_sth.sth.tree_size,
+                    &old_sth.sth.root_hash,
+                    &new_sth.sth.root_hash
+                  );
+                  if let Err(e) = consistency_proof_parts_res {
+                    crate::models::inserts::ConsistencyCheckError::upsert(
+                      db,
+                      log.log_id,
+                      old_sth.stored_as_id,
+                      new_sth.stored_as_id,
+                      &format!("{}", e),
+                    ).unwrap_or_display_err();
+                    break 'o;
+                  }
+                  use crate::schema::cert_fetch_errors::dsl as cfe;
+                  let consistency_proof_parts = consistency_proof_parts_res.unwrap();
+                  let mut leaf_hashs = Vec::with_capacity(usize::try_from(new_sth.sth.tree_size - old_sth.sth.tree_size).unwrap());
+                  let mut has_error = false;
+                  macro_rules! cfe_insert {
                     ($e:expr) => {
                       let ins = crate::models::inserts::CertFetchError {
                         log_id: log.log_id,
@@ -302,7 +303,7 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
                       has_error = true;
                     };
                 }
-                macro_rules! cfe_try {
+                  macro_rules! cfe_try {
                     ($r:expr) => {
                       match $r {
                         Ok(k) => k,
@@ -313,33 +314,34 @@ pub fn init_thread(db_pool: &'static DBPool, log: CtLog) -> Handle {
                       }
                     };
                 }
-                let mut leid = old_sth.sth.tree_size;
-                for le in ctclient::internal::get_entries(&http_client, &parsed_url, old_sth.sth.tree_size..new_sth.sth.tree_size) {
-                  let le = cfe_try!(le);
-                  leaf_hashs.push(le.hash);
-                  if let Err(e) = check_cert(db, log.log_id, &le, leid) {
-                    cfe_insert!(format!("Certificate error (leaf #{}={}): {}", leid, ctclient::utils::u8_to_hex(&le.hash), e));
+                  let mut leid = old_sth.sth.tree_size;
+                  for le in ctclient::internal::get_entries(&http_client, &parsed_url, old_sth.sth.tree_size..new_sth.sth.tree_size) {
+                    let le = cfe_try!(le);
+                    leaf_hashs.push(le.hash);
+                    if let Err(e) = check_cert(db, log.log_id, &le, leid) {
+                      cfe_insert!(format!("Certificate error (leaf #{}={}): {}", leid, ctclient::utils::u8_to_hex(&le.hash), e));
+                    }
+                    leid += 1;
                   }
-                  leid += 1;
-                }
-                assert_eq!(leaf_hashs.len(), (new_sth.sth.tree_size - old_sth.sth.tree_size) as usize);
-                for proof_part in consistency_proof_parts {
-                  assert!(proof_part.subtree.0 >= old_sth.sth.tree_size);
-                  assert!(proof_part.subtree.1 <= new_sth.sth.tree_size);
-                  if let Err(mut e) = proof_part.verify(&leaf_hashs[(proof_part.subtree.0 - old_sth.sth.tree_size) as usize..(proof_part.subtree.1 - old_sth.sth.tree_size) as usize]) {
-                    e.insert_str(0, "Fetched leaf does not match consistency proof: ");
-                    cfe_insert!(e);
-                    break 'o;
+                  assert_eq!(leaf_hashs.len(), (new_sth.sth.tree_size - old_sth.sth.tree_size) as usize);
+                  for proof_part in consistency_proof_parts {
+                    assert!(proof_part.subtree.0 >= old_sth.sth.tree_size);
+                    assert!(proof_part.subtree.1 <= new_sth.sth.tree_size);
+                    if let Err(mut e) = proof_part.verify(&leaf_hashs[(proof_part.subtree.0 - old_sth.sth.tree_size) as usize..(proof_part.subtree.1 - old_sth.sth.tree_size) as usize]) {
+                      e.insert_str(0, "Fetched leaf does not match consistency proof: ");
+                      cfe_insert!(e);
+                      break 'o;
+                    }
                   }
-                }
-                if !has_error {
-                  advance_latest_sth(db, &new_sth);
-                  diesel::delete(cfe::cert_fetch_errors)
-                      .filter(
-                        cfe::from_tree_size.eq(old_sth.sth.tree_size as i64)
-                            .and(cfe::to_tree_size.eq(new_sth.sth.tree_size as i64))
-                      ).execute(db).unwrap_or_display_err();
-                  last_fetched_sth = Some(new_sth);
+                  if !has_error {
+                    advance_latest_sth(db, &new_sth);
+                    diesel::delete(cfe::cert_fetch_errors)
+                        .filter(
+                          cfe::from_tree_size.eq(old_sth.sth.tree_size as i64)
+                              .and(cfe::to_tree_size.eq(new_sth.sth.tree_size as i64))
+                        ).execute(db).unwrap_or_display_err();
+                    last_fetched_sth = Some(new_sth);
+                  }
                 }
               }
             }
