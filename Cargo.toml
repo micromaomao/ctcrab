@@ -10,10 +10,12 @@ default-run = "main"
 
 [dependencies]
 ctclient = { path = "../ctclient" }
+chrono = "0.4.15"
 rocket = "0.4.5"
-diesel = { version = "1.4.5", features = ["postgres", "sqlite", "r2d2"], default-features = false }
+diesel = { version = "1.4.5", features = ["postgres", "sqlite", "r2d2", "chrono"], default-features = false }
 dotenv = "0.15.0"
 serde = { version = "1.0.115", features = ["derive"] }
+humantime = "2.0.1"
 base64 = "0.12.3"
 serde_json = "1.0.57"
 log = "0.4.11"
@@ -21,7 +23,7 @@ thiserror = "1.0.20"
 [dependencies.rocket_contrib]
 version = "0.4.5"
 default-features = false
-features = ["json", "handlebars_templates"]
+features = ["json", "handlebars_templates", "serve"]
 
 [[bin]]
 name = "populate_ctlogs_table"

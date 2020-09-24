@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::time::SystemTime;
+use std::time::{SystemTime, Duration};
 
 use diesel::pg::types::date_and_time::PgTimestamp;
 use diesel::prelude::*;
@@ -12,12 +12,16 @@ use thiserror::Error;
 use crate::core::context::CtCrabContext;
 use crate::models::Hash;
 use rocket::http::Status;
+use ctclient::internal::re_exports::reqwest::Url;
+use std::ops::Add;
+use std::convert::TryFrom;
+use chrono::{DateTime, Utc, NaiveDateTime, SecondsFormat};
 
-pub struct TimestampMs(PgTimestamp);
+pub struct TimestampMs(DateTime<Utc>);
 impl Serialize for TimestampMs {
   fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
       S: Serializer {
-    serializer.serialize_i64((self.0).0 / 1000 + 946684800000)
+    serializer.serialize_i64(self.0.timestamp_millis())
   }
 }
 
@@ -42,6 +46,9 @@ impl From<Box<dyn Error>> for APIError {
 #[derive(Debug, Error)]
 #[error("Expected to find exactly one {0}.")]
 struct ExactlyOneExpected(&'static str);
+#[derive(Debug, Error)]
+#[error("Tried to process a negative duration.")]
+struct SignedDurationIsNegative(#[source] Option<Box<dyn Error>>);
 
 pub type CtLogs = Vec<CtLog>;
 #[derive(Serialize)]
@@ -55,9 +62,13 @@ pub struct CtLog {
 #[derive(Serialize)]
 pub struct LogLatestSth {
   id: i64,
-  received_time: TimestampMs,
   tree_size: u64,
-  tree_hash: Hash
+  tree_hash: Hash,
+  latency_str: String,
+  latency_based_on: String,
+  received_time: TimestampMs,
+  sth_timestamp: i64,
+  latency_more_than_24h: bool
 }
 
 #[get("/ctlogs")]
@@ -72,19 +83,31 @@ pub fn ctlogs(ctx: State<CtCrabContext>) -> Result<Json<CtLogs>, APIError> {
   Ok(Json(logs.into_iter().map(|log| -> Result<CtLog, Box<dyn Error>> {
     let lsth = if let Some(latest_sth_id) = log.3 {
       use crate::schema::sth::dsl::*;
-      let mut res: Vec<(i64, PgTimestamp, i64, Hash)> = sth
-          .select((id, received_time, tree_size, tree_hash))
+      let mut res: Vec<(i64, DateTime<Utc>, i64, Hash, i64)> = sth
+          .select((id, received_time, tree_size, tree_hash, sth_timestamp))
           .filter(id.eq(latest_sth_id))
           .load(&db)?;
       if res.len() != 1 {
         return Err(Box::new(ExactlyOneExpected("sth")));
       }
       let res = res.swap_remove(0);
+      let mut sth_time = DateTime::from_utc(NaiveDateTime::from_timestamp(res.4 / 1000, (res.4 % 1000) as u32 * 1000000), Utc);
+      let received = res.1;
+      if sth_time > received {
+        sth_time = received;
+      }
+      let latency = std::time::Duration::from_secs(u64::try_from(Utc::now()
+          .signed_duration_since(sth_time)
+          .num_seconds()).map_err(|e| Box::new(SignedDurationIsNegative(None)) as Box<_>)?);
       Some(LogLatestSth {
         id: res.0,
-        received_time: TimestampMs(res.1),
         tree_size: res.2 as u64,
-        tree_hash: res.3
+        tree_hash: res.3,
+        latency_str: humantime::format_duration(latency).to_string(),
+        latency_based_on: sth_time.to_rfc3339_opts(SecondsFormat::Secs, true),
+        received_time: TimestampMs(received),
+        sth_timestamp: res.4,
+        latency_more_than_24h: latency.as_secs() >= 60*60*24
       })
     } else {
       None
@@ -99,6 +122,20 @@ pub fn ctlogs(ctx: State<CtCrabContext>) -> Result<Json<CtLogs>, APIError> {
   }).collect::<Result<Vec<CtLog>, Box<dyn Error>>>()?))
 }
 
+#[derive(Serialize)]
+pub struct CtLogDetail {
+  log_id: Hash,
+  endpoint_url: String,
+  name: String,
+  monitoring: bool,
+  last_sth_error: String
+}
+
+#[get("/log/<id>")]
+pub fn log(id: Hash, ctx: State<CtCrabContext>) -> Result<Json<CtLogDetail>, APIError> {
+  unimplemented!()
+}
+
 pub fn api_routes() -> Vec<rocket::Route> {
-  routes![ctlogs]
+  routes![ctlogs, log]
 }

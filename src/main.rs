@@ -11,14 +11,17 @@ extern crate thiserror;
 use std::error::Error;
 
 use rocket::{Request, Response, State};
+use rocket::http::Status;
 use rocket::response::content::Plain;
 use rocket::response::Responder;
 use rocket_contrib::templates::Template;
 use serde::Serialize;
+use serde_json::json;
 
-use crate::core::context::CtCrabContext;
-use rocket::http::Status;
 use crate::api::APIError;
+use crate::core::context::CtCrabContext;
+use rocket_contrib::serve::StaticFiles;
+use crate::models::Hash;
 
 mod schema;
 mod models;
@@ -40,21 +43,14 @@ impl<'r> Responder<'r> for HTMLError {
         break;
       }
     }
-    #[derive(Serialize)]
-    struct Ctx<'a> {
-      main_error: &'a str,
-      cause_chain: &'a [String],
-      status: u16,
-      version: &'static str
-    }
-    let ctx = Ctx {
-      status,
-      main_error: &error_chain[0],
-      cause_chain: &error_chain[1..],
-      version: env!("CARGO_PKG_VERSION")
-    };
     let res = Response::build_from(
-      Template::render("error", ctx).respond_to(request)?
+      Template::render("error", json!({
+        "status": status,
+        "main_error": &error_chain[0],
+        "cause_chain": &error_chain[1..],
+        "has_cause": error_chain.len() > 1,
+        "version": env!("CARGO_PKG_VERSION")
+      })).respond_to(request)?
     ).status(Status::from_code(status).unwrap()).finalize();
     Ok(res)
   }
@@ -67,21 +63,26 @@ impl From<api::APIError> for HTMLError {
 
 #[get("/")]
 fn index(ctx: State<CtCrabContext>) -> Result<Template, HTMLError> {
-  #[derive(Serialize)]
-  struct Ctx {
-    ctlogs: api::CtLogs,
-    nb_logs: usize
-  }
   let ctlogs = api::ctlogs(ctx)?.0;
-  Ok(Template::render("index", Ctx {
-    nb_logs: ctlogs.len(),
-    ctlogs
-  }))
+  Ok(Template::render("index", json!({
+    "nb_logs": ctlogs.len(),
+    "nb_domains": 0usize,
+    "ctlogs": ctlogs
+  })))
+}
+
+#[get("/log/<id>")]
+fn log(id: Hash, ctx: State<CtCrabContext>) -> Result<Template, HTMLError> {
+  Ok(Template::render("log", json!({
+  })))
 }
 
 #[catch(500)]
-fn http500catcher() -> Plain<&'static str> {
-  Plain("Whoops! Looks like we messed up. (HTTP 500)\n")
+fn http500catcher() -> HTMLError {
+  #[derive(Debug, Error)]
+  #[error("Whoops! Looks like we messed up.")]
+  struct E;
+  HTMLError(500, Box::new(E))
 }
 
 #[catch(404)]
@@ -103,7 +104,9 @@ fn main() {
   };
   rocket::ignite()
       .attach(Template::fairing())
-      .mount("/", routes![ index ])
+      .mount("/", routes![ index, log ])
+      // todo: support http caching
+      .mount("/", StaticFiles::new("static", rocket_contrib::serve::Options::None))
       .mount("/api/", api::api_routes())
       .register(catchers![http500catcher, http404catcher])
       .manage(ctx).launch();

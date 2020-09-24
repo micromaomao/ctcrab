@@ -1,44 +1,26 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>Error ({{ status }})</title>
-		<style>
-			body {
-				margin: 0;
-				padding: 0;
-				background-color: white;
-				color: indigo;
-				font-family: sans-serif;
-			}
-
-			.heading {
-				background-color: brown;
-				color: white;
-				padding: 1em 1.5em;
-				box-shadow: rgba(0,0,0,0.2) 0px 4px 4px;
-				margin-bottom: 0.5em;
-			}
-
-			.heading .main-cause {
-				font-size: 1.5em;
-			}
-
-			.cause {
-				padding: 0.5em 1.5em;
-			}
-			.cause:hover {
-				background-color: beige;
-			}
-		</style>
+		<title>Error {{status}} - CtCrab</title>
+		<link rel="stylesheet" href="/layout.css">
 	</head>
-	<body>
-		<div class="heading">
-			CtCrab: HTTP {{status}}
-			<div class="main-cause">{{main_error}}</div>
+	<body class="error-page">
+		<div class="topbar">
+			<h1>HTTP {{status}}</h1>
+			<div>{{main_error}}</div>
 		</div>
-		{{#each cause_chain}}
-			<div class="cause">Caused by: {{.}}</div>
-		{{/each}}
-		<div class="cause">App version: {{version}}</div>
+
+		{{#if has_cause}}
+			<h2>Causes</h2>
+
+			<ul>
+				{{#each cause_chain}}
+					<li>{{.}}</li>
+				{{/each}}
+			</ul>
+		{{/if}}
+
+		<h2>Version</h2>
+		<div class="version">{{version}}</div>
 	</body>
 </html>

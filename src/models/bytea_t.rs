@@ -9,9 +9,12 @@ use diesel::deserialize::FromSql;
 use diesel::serialize::{Output, ToSql};
 use diesel::sql_types::Binary;
 use serde::de::{Deserialize, Deserializer};
-use serde::export::Formatter;
+use serde::export::{Formatter, TryFrom};
 use serde::ser::Serializer;
 use serde::Serialize;
+use std::str::FromStr;
+use rocket::request::FromParam;
+use rocket::http::RawStr;
 
 macro_rules! impl_sql_binary_type {
   ($type_name:ident) => {
@@ -39,6 +42,48 @@ impl Serialize for Hash {
     serializer.serialize_str(&u8_to_hex(&self.0))
   }
 }
+#[derive(Debug, Error)]
+pub enum HashFromStrError {
+  #[error("Expected length of 64 (hex of 32 byte hash), got {0}.")]
+  InvalidLength(usize),
+  #[error("Unexpected byte {0:?}, expected ASCII 0-9a-f.")]
+  UnexpectedByte(u8)
+}
+impl TryFrom<&[u8]> for Hash {
+  type Error = HashFromStrError;
+
+  fn try_from(hex: &[u8]) -> Result<Self, Self::Error> {
+    if hex.len() != 64 {
+      return Err(HashFromStrError::InvalidLength(hex.len()));
+    }
+    let mut buf = [0u8; 32];
+    for i in 0..32 {
+      for ii in 0..2 {
+        let mut hex = hex[i*2+ii];
+        if (b'A'..=b'F').contains(&hex) {
+          hex = hex - b'A' + b'a';
+        }
+        let halfbyte = if (b'0'..=b'9').contains(&hex) {
+          hex - b'0'
+        } else if (b'a'..=b'f').contains(&hex) {
+          hex - b'a' + 10u8
+        } else {
+          return Err(HashFromStrError::UnexpectedByte(hex));
+        };
+        buf[i] |= halfbyte << (ii * 4);
+      }
+    }
+    Ok(Hash(buf))
+  }
+}
+impl FromStr for Hash {
+  type Err = HashFromStrError;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    s.as_bytes().try_into()
+  }
+}
+
 impl<'de> Deserialize<'de> for Hash {
   fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
       D: Deserializer<'de> {
@@ -52,31 +97,22 @@ impl<'de> Deserialize<'de> for Hash {
 
       fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where
           E: serde::de::Error, {
-        if v.len() != 64 {
-          return Err(E::invalid_length(64,&self));
+        match Hash::from_str(v) {
+          Ok(h) => Ok(h),
+          Err(HashFromStrError::InvalidLength(got)) => Err(E::invalid_length(64,&self)),
+          Err(HashFromStrError::UnexpectedByte(b)) => Err(E::invalid_value(serde::de::Unexpected::Char(b as char), &self))
         }
-        let mut buf = [0u8; 32];
-        let hex = v.as_bytes();
-        for i in 0..32 {
-          for ii in 0..2 {
-            let mut hex = hex[i*2+ii];
-            if (b'A'..=b'F').contains(&hex) {
-              hex = hex - b'A' + b'a';
-            }
-            let halfbyte = if (b'0'..b'9').contains(&hex) {
-              hex - b'0'
-            } else if (b'a'..b'f').contains(&hex) {
-              hex - b'a' + 10u8
-            } else {
-              return Err(E::invalid_value(serde::de::Unexpected::Char(hex as char), &self))
-            };
-            buf[i] |= halfbyte << (ii * 4);
-          }
-        }
-        Ok(Hash(buf))
       }
     }
     deserializer.deserialize_str(MyVisitor)
+  }
+}
+impl<'a> FromParam<'a> for Hash {
+  type Error = HashFromStrError;
+
+  fn from_param(param: &'a RawStr) -> Result<Self, Self::Error> {
+    let s = param.as_bytes();
+    s.try_into()
   }
 }
 

@@ -1,16 +1,58 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>Monitoring {{nb_logs}} logs</title>
+		<title>Index - CtCrab</title>
+		<link rel="stylesheet" href="/layout.css">
 	</head>
 	<body>
-		<ul>
+		<div class="topbar">
+			<h1>CtCrab</h1>
+			<div>{{nb_logs}} logs, {{nb_domains}} domains</div>
+		</div>
+
+		<h2>
+			Logs
+			<a href="/api/ctlogs" class="apilink">
+				<span class="icon">code</span> json
+			</a>
+		</h2>
+		<ul class="loglist">
 			{{#each ctlogs}}
 				<li>
-					<span class="name">{{name}}</span>
-					<span class="hash">{{latest_sth.tree_hash}}</span>
+					<a class="name" href="/log/{{log_id}}">{{name}}</a>
+					{{#if latest_sth}}
+						<span>
+							<span class="icon">tree</span> {{latest_sth.tree_size}}
+						</span>
+						<span class="{{#if latest_sth.latency_more_than_24h}}late{{/if}}">
+							<span class="icon">latency</span> <time datetime="{{latest_sth.latency_based_on}}">{{latest_sth.latency_str}}</time>
+						</span>
+					{{/if}}
+					<a class="endpoint" href="{{endpoint_url}}">
+						<span class="icon">link</span> {{endpoint_url}}
+					</a>
+					{{#if last_sth_error}}
+						<div class="error">
+							<span class="icon">error</span> {{last_sth_error}}
+						</div>
+					{{/if}}
 				</li>
 			{{/each}}
 		</ul>
+		<script>
+			if (!window.scriptRan) {
+				window.scriptRan = true;
+				function update_content() {
+					requestAnimationFrame(async () => {
+						let res = await (await fetch("", {method: "GET"})).text();
+						document.open();
+						document.write(res);
+						document.close();
+						setTimeout(update_content, 5000);
+					});
+				}
+				setTimeout(update_content, 5000);
+			}
+		</script>
 	</body>
 </html>
