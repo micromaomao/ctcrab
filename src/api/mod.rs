@@ -49,6 +49,9 @@ struct ExactlyOneExpected(&'static str);
 #[derive(Debug, Error)]
 #[error("Tried to process a negative duration.")]
 struct SignedDurationIsNegative(#[source] Option<Box<dyn Error>>);
+#[derive(Debug, Error)]
+#[error("{0} not found.")]
+struct NotFound(&'static str);
 
 pub type CtLogs = Vec<CtLog>;
 #[derive(Serialize)]
@@ -122,20 +125,31 @@ pub fn ctlogs(ctx: State<CtCrabContext>) -> Result<Json<CtLogs>, APIError> {
   }).collect::<Result<Vec<CtLog>, Box<dyn Error>>>()?))
 }
 
-#[derive(Serialize)]
-pub struct CtLogDetail {
-  log_id: Hash,
-  endpoint_url: String,
-  name: String,
-  monitoring: bool,
-  last_sth_error: String
+#[get("/log/<id>")]
+pub fn log(id: Hash, ctx: State<CtCrabContext>) -> Result<Json<crate::models::CtLog>, APIError> {
+  use crate::schema::ctlogs::dsl::*;
+  let res: Vec<crate::models::CtLog> = ctlogs
+      .filter(log_id.eq(id))
+      .load(&ctx.db()?).map_err(|e| Box::new(e) as Box<dyn Error>)?;
+  if let Some(res) = res.into_iter().next() {
+    Ok(Json(res))
+  } else {
+    Err(APIError(404, Box::new(NotFound("log"))))
+  }
 }
 
-#[get("/log/<id>")]
-pub fn log(id: Hash, ctx: State<CtCrabContext>) -> Result<Json<CtLogDetail>, APIError> {
-  unimplemented!()
+#[get("/log/<id>/pubkey.der")]
+pub fn log_pubkey(id: Hash, ctx: State<CtCrabContext>) -> Result<Vec<u8>, APIError> {
+  use crate::schema::ctlogs::dsl::*;
+  let res: Vec<Vec<u8>> = ctlogs.select(public_key).filter(log_id.eq(id)).load(&ctx.db()?)
+      .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+  if let Some(res) = res.into_iter().next() {
+    Ok(res)
+  } else {
+    Err(APIError(404, Box::new(NotFound("log"))))
+  }
 }
 
 pub fn api_routes() -> Vec<rocket::Route> {
-  routes![ctlogs, log]
+  routes![ctlogs, log, log_pubkey]
 }

@@ -11,7 +11,7 @@ default-run = "main"
 [dependencies]
 ctclient = { path = "../ctclient" }
 chrono = "0.4.15"
-rocket = "0.4.5"
+rocket = { path = "../Rocket/core/lib" }
 diesel = { version = "1.4.5", features = ["postgres", "sqlite", "r2d2", "chrono"], default-features = false }
 dotenv = "0.15.0"
 serde = { version = "1.0.115", features = ["derive"] }
