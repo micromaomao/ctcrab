@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>{{log_detail.name}} - CtCrab</title>
+		<link rel="stylesheet" href="/layout.css">
+	</head>
+	<body class="log-page">
+		{{#with log_detail}}
+			<div class="topbar">
+				<a href="/" class="back icon">home</a>
+				<h1>{{name}}</h1>
+				<div><a href="{{endpoint_url}}">{{endpoint_url}}</a></div>
+			</div>
+
+			<div class="loginfo">
+				<span class="monitoring-state {{#if monitoring}}green{{else}}red{{/if}}">
+					{{#if monitoring}}
+						<span class="icon">checkmark</span> monitoring
+					{{else}}
+						<span class="icon">pause</span> retired
+					{{/if}}
+				</span>
+				<span class="sep">&centerdot;</span>
+				<a href="/api/log/{{log_id}}" class="apilink">
+					<span class="icon">code</span> json
+				</a>
+				{{#if latest_sth}}
+					<span class="sep">&centerdot;</span>
+					<a href="/api/log/{{log_id}}/pubkey.der" class="pubkey">
+						<span class="icon">key</span> public key
+					</a>
+				{{/if}}
+			</div>
+
+			{{#if last_sth_error}}
+				<div class="sth-error">
+					<b><span class="icon">error</span> Can't fetch latest STH</b><br>
+					{{last_sth_error}}
+				</div>
+			{{/if}}
+			{{#if latency_warning}}
+				<div class="latency-warning">
+					<b><span class="icon">error</span> STH is more than 24h out-of-date</b>
+					Last fetch sth has a timestamp of {{latency_warning}} ago.
+				</div>
+			{{/if}}
+		{{/with}}
+	</body>
+</html>

@@ -1,15 +1,17 @@
 use diesel::Connection;
 use diesel::pg::Pg;
 use diesel::pg::types::date_and_time::PgTimestamp;
+use serde::Serialize;
 
 pub use bytea_t::*;
 
 use crate::schema::*;
+use chrono::{DateTime, Utc};
 
 mod bytea_t;
 pub mod inserts;
 
-#[derive(Queryable, QueryableByName, Debug)]
+#[derive(Queryable, QueryableByName, Debug, Serialize)]
 #[table_name = "ctlogs"]
 pub struct CtLog {
   pub log_id: Hash,
@@ -42,7 +44,7 @@ pub struct Sth {
   pub tree_hash: Hash,
   pub tree_size: i64,
   pub sth_timestamp: i64,
-  pub received_time: PgTimestamp,
+  pub received_time: DateTime<Utc>,
   pub signature: BytesWithBase64Repr,
   pub checked_consistent_with_latest: bool
 }
