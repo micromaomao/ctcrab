@@ -70,7 +70,7 @@ impl TryFrom<&[u8]> for Hash {
         } else {
           return Err(HashFromStrError::UnexpectedByte(hex));
         };
-        buf[i] |= halfbyte << (ii * 4);
+        buf[i] |= halfbyte << ((1 - ii) * 4);
       }
     }
     Ok(Hash(buf))
@@ -99,7 +99,7 @@ impl<'de> Deserialize<'de> for Hash {
           E: serde::de::Error, {
         match Hash::from_str(v) {
           Ok(h) => Ok(h),
-          Err(HashFromStrError::InvalidLength(got)) => Err(E::invalid_length(64,&self)),
+          Err(HashFromStrError::InvalidLength(_got)) => Err(E::invalid_length(64,&self)),
           Err(HashFromStrError::UnexpectedByte(b)) => Err(E::invalid_value(serde::de::Unexpected::Char(b as char), &self))
         }
       }
@@ -150,4 +150,10 @@ impl<'de> Deserialize<'de> for BytesWithBase64Repr {
     }
     deserializer.deserialize_str(MyVisitor)
   }
+}
+
+#[test]
+fn test_hash() {
+  assert_eq!(Hash([0,1,2,3,200,201,202,203,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).to_string(), "00010203c8c9cacb000000000000000000000000000000000000000000000000");
+  assert_eq!(serde_json::from_str::<Hash>("\"00010203c8c9cacb000000000000000000000000000000000000000000000000\"").unwrap(), Hash([0,1,2,3,200,201,202,203,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]));
 }

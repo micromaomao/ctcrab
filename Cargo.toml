@@ -4,7 +4,6 @@ version = "0.1.0"
 repository = "https://github.com/micromaomao/ctcrab"
 authors = ["Mao <m@maowtm.org>"]
 edition = "2018"
-default-run = "main"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,7 +14,6 @@ rocket = "0.4.5"
 diesel = { version = "1.4.5", features = ["postgres", "sqlite", "r2d2", "chrono"], default-features = false }
 dotenv = "0.15.0"
 serde = { version = "1.0.115", features = ["derive"] }
-humantime = "2.0.1"
 base64 = "0.12.3"
 serde_json = "1.0.57"
 log = "0.4.11"
@@ -23,12 +21,4 @@ thiserror = "1.0.20"
 [dependencies.rocket_contrib]
 version = "0.4.5"
 default-features = false
-features = ["json", "handlebars_templates", "serve"]
-
-[[bin]]
-name = "populate_ctlogs_table"
-path = "src/populate_ctlogs_table.rs"
-
-[[bin]]
-name = "main"
-path = "src/main.rs"
+features = ["json"]

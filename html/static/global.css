@@ -1,0 +1,25 @@
+/* TODO */
+@import url(https://i.icomoon.io/public/temp/9e55f2d35a/ctcrab/style.css);
+
+:root {
+	--color-bg: #f7f0f0;
+	--color-text: #484349;
+	--color-accent: #235789;
+	--color-light-accent: #8af3ff;
+	--color-green: #109648;
+	--color-red: #96101B;
+	--color-yellow: #F1ED14;
+}
+
+body {
+	font-family: Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+	margin: 0;
+	padding: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}

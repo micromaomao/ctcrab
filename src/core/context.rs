@@ -1,6 +1,5 @@
 use std::error::Error;
-use std::mem::MaybeUninit;
-use std::sync::{Mutex, Arc};
+use std::sync::Mutex;
 
 use crate::core::db::{create_db_pool, DBPool, DBPooledConn};
 use crate::core::update_thread;
@@ -11,20 +10,18 @@ pub struct CtCrabContext {
 }
 
 impl CtCrabContext {
-  pub fn new() -> Result<CtCrabContext, Box<dyn Error>> {
-    let ctx = CtCrabContext {
+  pub fn new() -> CtCrabContext {
+    CtCrabContext {
       db_pool: create_db_pool(),
       update_threads: Mutex::new(Vec::new())
-    };
-    ctx.init_update_threads()?;
-    Ok(ctx)
+    }
   }
 
   pub fn db(&self) -> Result<DBPooledConn, Box<dyn Error>> {
     self.db_pool.get().map_err(|x| Box::new(x) as _)
   }
 
-  fn init_update_threads(&self) -> Result<(), Box<dyn Error>> {
+  pub fn init_update_threads(&self) -> Result<(), Box<dyn Error>> {
     let mut update_threads = self.update_threads.lock().unwrap();
     update_threads.truncate(0);
     use diesel::prelude::*;

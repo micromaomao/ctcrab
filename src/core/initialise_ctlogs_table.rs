@@ -1,27 +1,14 @@
-#![feature(label_break_value)]
-#[macro_use]
-extern crate diesel;
-#[macro_use]
-extern crate rocket;
-#[macro_use]
-extern crate thiserror;
-
+use crate::core::db::{DBPooledConn, PgConnectionHelper};
+use crate::models::Hash;
 use diesel::prelude::*;
-use diesel::RunQueryDsl;
 
-use models::Hash;
-
-use crate::core::db::open_db;
-use crate::core::db::PgConnectionHelper;
-
-mod schema;
-mod models;
-mod core;
-
-#[derive(Debug)]
-enum E {
+#[derive(Debug, Error)]
+pub enum E {
+  #[error("Unable to fetch log list")]
   UnableToFetchLogList,
-  DB(diesel::result::Error),
+  #[error("DB: {0}")]
+  DB(#[source] diesel::result::Error),
+  #[error("{log_id}'s public key changed, which is not allowed.")]
   PublicKeyChanged { log_id: Hash, name: String }
 }
 impl From<diesel::result::Error> for E {
@@ -29,25 +16,15 @@ impl From<diesel::result::Error> for E {
     E::DB(e)
   }
 }
-impl From<E> for String {
-  fn from(e: E) -> Self {
-    match e {
-      E::UnableToFetchLogList => "Unable to fetch log list".to_owned(),
-      E::DB(e) => format!("{}", e),
-      E::PublicKeyChanged { log_id: _, name } => format!("{:?}'s public key changed, which is not allowed.", name)
-    }
-  }
-}
 
-fn main() -> Result<(), E> {
-  let db = open_db();
+pub fn initialise_or_update_ctlogs_table(db: &DBPooledConn) -> Result<(), E> {
   let ll = ctclient::google_log_list::LogList::get().map_err(|_| E::UnableToFetchLogList)?;
-  use schema::ctlogs::dsl::*;
+  use crate::schema::ctlogs::dsl::*;
   for (id, log) in ll.map_id_to_log {
     use ctclient::google_log_list::LogState::*;
     match log.state {
       Pending | Qualified | Usable | Readonly => {
-        let ins = models::inserts::CtLog {
+        let ins = crate::models::inserts::CtLog {
           log_id: Hash(id),
           endpoint_url: &log.base_url,
           name: &log.description,
@@ -59,11 +36,11 @@ fn main() -> Result<(), E> {
               .select((public_key,))
               .filter(log_id.eq(ins.log_id))
               .limit(1)
-              .load(&db)?;
+              .load(db)?;
           if existing.is_empty() {
             diesel::insert_into(ctlogs)
                 .values(&ins)
-                .execute(&db)?;
+                .execute(db)?;
           } else {
             let pub_key = &existing[0].0[..];
             if pub_key != ins.public_key {
@@ -75,7 +52,7 @@ fn main() -> Result<(), E> {
                   endpoint_url.eq(&ins.endpoint_url),
                   name.eq(&ins.name),
                   monitoring.eq(true)
-                )).execute(&db)?;
+                )).execute(db)?;
           }
           Ok(())
         })?;
@@ -84,7 +61,7 @@ fn main() -> Result<(), E> {
         diesel::update(ctlogs)
             .filter(log_id.eq(Hash(id)))
             .set(monitoring.eq(false))
-            .execute(&db)?;
+            .execute(db)?;
       }
     }
   }
