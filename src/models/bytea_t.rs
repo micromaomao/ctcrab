@@ -99,7 +99,7 @@ impl<'de> Deserialize<'de> for Hash {
           E: serde::de::Error, {
         match Hash::from_str(v) {
           Ok(h) => Ok(h),
-          Err(HashFromStrError::InvalidLength(got)) => Err(E::invalid_length(64,&self)),
+          Err(HashFromStrError::InvalidLength(_got)) => Err(E::invalid_length(64,&self)),
           Err(HashFromStrError::UnexpectedByte(b)) => Err(E::invalid_value(serde::de::Unexpected::Char(b as char), &self))
         }
       }

@@ -1,6 +1,5 @@
 use std::error::Error;
-use std::mem::MaybeUninit;
-use std::sync::{Mutex, Arc};
+use std::sync::Mutex;
 
 use crate::core::db::{create_db_pool, DBPool, DBPooledConn};
 use crate::core::update_thread;

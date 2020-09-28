@@ -1,23 +1,19 @@
+use std::convert::TryInto;
 use std::error::Error;
-use std::time::{SystemTime, Duration};
 
-use diesel::pg::types::date_and_time::PgTimestamp;
+use chrono::{DateTime, Utc};
+use diesel::expression::count::count_star;
 use diesel::prelude::*;
-use rocket::response::{Debug, Responder};
-use rocket::{State, Request, Response};
+use rocket::{Request, Response, State};
+use rocket::http::Status;
+use rocket::response::Responder;
 use rocket_contrib::json::Json;
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 use crate::core::context::CtCrabContext;
-use crate::models::Hash;
-use rocket::http::Status;
-use ctclient::internal::re_exports::reqwest::Url;
-use std::ops::Add;
-use std::convert::{TryFrom, TryInto};
-use chrono::{DateTime, Utc, NaiveDateTime, SecondsFormat};
-use diesel::expression::count::count_star;
 use crate::core::db::DBPooledConn;
+use crate::models::Hash;
 
 pub struct TimestampMs(DateTime<Utc>);
 impl Serialize for TimestampMs {

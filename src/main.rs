@@ -11,17 +11,17 @@ extern crate thiserror;
 use std::error::Error;
 
 use diesel::prelude::*;
-use rocket::{Request, Response, State};
-use rocket::http::{Status, Header};
-use rocket::response::content::Plain;
-use rocket::response::Responder;
-use serde::Serialize;
-use serde_json::json;
+use rocket::{Request, Response};
+use rocket::http::{Header};
 
-use crate::api::APIError;
+
+
+
+
+
 use crate::core::context::CtCrabContext;
-use crate::models::Hash;
-use chrono::{DateTime, Utc, NaiveDateTime};
+
+
 use rocket::fairing::{Fairing, Info};
 use diesel::expression::count::count_star;
 use std::convert::TryFrom;
@@ -41,7 +41,7 @@ fn http500catcher() -> api::APIError {
 }
 
 #[catch(404)]
-fn http404catcher(req: &Request) -> api::APIError {
+fn http404catcher() -> api::APIError {
   #[derive(Debug, Error)]
   #[error("Page not found")]
   struct PNF;
@@ -58,7 +58,7 @@ impl Fairing for AccessControlFairing {
     }
   }
 
-  fn on_response(&self, request: &Request, response: &mut Response) {
+  fn on_response(&self, _request: &Request, response: &mut Response) {
     response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
   }
 }
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     use crate::schema::ctlogs::dsl::*;
     let db = ctx.db()?;
     let count: usize = TryFrom::<i64>::try_from(ctlogs.select(count_star()).filter(monitoring.eq(true)).first(&db)
-        .map_err(|e| Box::new(e))?).unwrap();
+        .map_err(Box::new)?).unwrap();
     if count == 0 {
       #[derive(Debug, Error)]
       #[error("Failed to initialize ctlogs table: {0}")]

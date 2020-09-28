@@ -1,6 +1,6 @@
 use diesel::Connection;
 use diesel::pg::Pg;
-use diesel::pg::types::date_and_time::PgTimestamp;
+
 use serde::Serialize;
 
 pub use bytea_t::*;
