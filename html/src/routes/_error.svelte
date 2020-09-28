@@ -4,6 +4,8 @@
 <script lang="ts">
 	export let error: Error;
 	export let status: number;
+
+	$: console.error(error);
 </script>
 
 <Topbar>

@@ -3,14 +3,20 @@ type FetchFn = typeof fetch;
 import backend_config from "./backend-config.json";
 
 export class APIError extends Error {
+	status: number;
 	constructor(status: number, text: string) {
 		super(`Server responded with ${status}: ${text}`);
+		this.status = status;
 	}
 }
 export class NetworkError extends Error {
 	inner: Error;
 	constructor(inner: Error) {
-		super(`Can not communicate with backend server: ${inner.message}`);
+		if (typeof navigator === "undefined" || navigator.onLine) {
+			super(`Can not communicate with backend server: ${inner.message}`);
+		} else {
+			super("You're offline.");
+		}
 		this.inner = inner;
 	}
 }

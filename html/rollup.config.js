@@ -106,7 +106,8 @@ export default {
 			}),
 			commonjs(),
 			typescript({ sourceMap: dev }),
-			!dev && terser()
+			!dev && terser(),
+			json()
 		],
 
 		preserveEntrySignatures: false,

@@ -1,4 +1,5 @@
 import { timestamp, files, shell, routes } from '@sapper/service-worker';
+import { url as backend_url } from "./backend-config.json";
 
 const ASSETS = `cache${timestamp}`;
 
@@ -59,6 +60,11 @@ self.addEventListener('fetch', <EventType extends FetchEvent>(event: EventType) 
 	*/
 
 	if (event.request.cache === 'only-if-cached') return;
+
+	// do not try to cache monitor server response.
+	if (event.request.url.startsWith(backend_url + "/")) {
+		return;
+	}
 
 	// for everything else, try the network first, falling back to
 	// cache if the user is offline. (If the pages never change, you
