@@ -7,7 +7,7 @@
 
 	export async function preload(): Promise<any> {
 		let stats = await get_stats(this.fetch);
-		let ctlogs = await get_ctlogs(this.fetch);
+		let ctlogs = await get_ctlogs(this.fetch, true);
 		return { stats, ctlogs };
 	}
 </script>
@@ -20,6 +20,7 @@
 		let timeoutHandle: number | null = null;
 		let umounted: boolean = false;
 		let fn = async () => {
+			timeoutHandle = null;
 			if (umounted) return;
 			let new_props;
 			try {
@@ -36,7 +37,9 @@
 		};
 		timeoutHandle = setTimeout(fn, 1000);
 		return () => {
-			clearTimeout(timeoutHandle);
+			if (timeoutHandle !== null) {
+				clearTimeout(timeoutHandle);
+			}
 			umounted = true;
 		};
 	});

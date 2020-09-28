@@ -1,7 +1,7 @@
 use diesel::Connection;
 use diesel::pg::Pg;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 pub use bytea_t::*;
 
@@ -36,7 +36,7 @@ impl CtLog {
   }
 }
 
-#[derive(Queryable, QueryableByName, Debug)]
+#[derive(Queryable, QueryableByName, Debug, Serialize)]
 #[table_name = "sth"]
 pub struct Sth {
   pub id: i64,
@@ -44,8 +44,12 @@ pub struct Sth {
   pub tree_hash: Hash,
   pub tree_size: i64,
   pub sth_timestamp: i64,
+  #[serde(serialize_with = "serialize_datetime")]
   pub received_time: DateTime<Utc>,
   pub signature: BytesWithBase64Repr,
   pub checked_consistent_with_latest: bool
 }
 
+pub fn serialize_datetime<S: Serializer>(t: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
+  s.serialize_i64(t.timestamp_millis())
+}

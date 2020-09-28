@@ -9,11 +9,11 @@ use rocket::http::Status;
 use rocket::response::Responder;
 use rocket_contrib::json::Json;
 use serde::{Serialize, Serializer};
-use thiserror::Error;
 
 use crate::core::context::CtCrabContext;
 use crate::core::db::DBPooledConn;
 use crate::models::Hash;
+use crate::schema::ctlogs::columns::monitoring;
 
 pub struct TimestampMs(DateTime<Utc>);
 impl Serialize for TimestampMs {
@@ -56,6 +56,7 @@ pub type CtLogs = Vec<BasicCtLogInfo>;
 pub struct BasicCtLogInfo {
   log_id: Hash,
   name: String,
+  monitoring: bool,
   endpoint_url: String,
   latest_sth: Option<BasicSthInfo>,
   last_sth_error: Option<String>
@@ -85,22 +86,27 @@ fn get_basic_sth_info(sth_id: Option<i64>, db: &DBPooledConn) -> Result<Option<B
       tree_size: res.2 as u64,
       tree_hash: res.3,
       received_time: TimestampMs(res.1),
-      sth_timestamp: res.4
+      sth_timestamp: res.4,
     }))
   } else {
     Ok(None)
   }
 }
 
-#[get("/ctlogs")]
-pub fn ctlogs(ctx: State<CtCrabContext>) -> Result<Json<CtLogs>, APIError> {
+#[get("/ctlogs?<include_retired>")]
+pub fn ctlogs(ctx: State<CtCrabContext>, include_retired: bool) -> Result<Json<CtLogs>, APIError> {
   let db = ctx.db()?;
   use crate::schema::ctlogs::dsl::*;
-  let logs: Vec<(Hash, String, String, Option<i64>, Option<String>)> = ctlogs
-      .select((log_id, name, endpoint_url, latest_sth, last_sth_error))
-      .filter(monitoring.eq(true))
-      .order_by(name.asc())
-      .load(&db).map_err(|e| Box::new(e) as Box<dyn Error>)?;
+  let logs: Vec<(Hash, String, String, Option<i64>, Option<String>, bool)> = {
+    let mut query = ctlogs
+        .select((log_id, name, endpoint_url, latest_sth, last_sth_error, monitoring))
+        .order_by((monitoring.desc(), name.asc()));
+    if !include_retired {
+      query.filter(monitoring.eq(true)).load(&db)
+    } else {
+      query.load(&db)
+    }
+  }.map_err(|e| Box::new(e) as Box<dyn Error>)?;
   Ok(Json(logs.into_iter().map(|log| -> Result<BasicCtLogInfo, Box<dyn Error>> {
     let lsth = get_basic_sth_info(log.3, &db)?;
     Ok(BasicCtLogInfo {
@@ -108,7 +114,8 @@ pub fn ctlogs(ctx: State<CtCrabContext>) -> Result<Json<CtLogs>, APIError> {
       name: log.1,
       endpoint_url: log.2,
       latest_sth: lsth,
-      last_sth_error: log.4
+      last_sth_error: log.4,
+      monitoring: log.5
     })
   }).collect::<Result<Vec<BasicCtLogInfo>, Box<dyn Error>>>()?))
 }
@@ -145,6 +152,18 @@ pub fn stats(ctx: State<CtCrabContext>) -> Result<Json<Stats>, APIError> {
   }))
 }
 
+#[get("/log/<log_id>/sth/<sth_id>")]
+pub fn get_sth(log_id: Hash, sth_id: i64, ctx: State<CtCrabContext>) -> Result<Json<crate::models::Sth>, APIError> {
+  use crate::schema::sth::dsl::*;
+  let db = ctx.db()?;
+  let res: Vec<crate::models::Sth> = sth.filter(id.eq(sth_id).and(log_id.eq(log_id)))
+      .load(&db).map_err(|e| Box::new(e) as Box<dyn Error>)?;
+  if res.is_empty() {
+    return Err(APIError(404, Box::new(NotFound("sth"))));
+  }
+  Ok(Json(res.into_iter().next().unwrap()))
+}
+
 pub fn api_routes() -> Vec<rocket::Route> {
-  routes![ctlogs, log, stats]
+  routes![ctlogs, log, stats, get_sth]
 }

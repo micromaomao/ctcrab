@@ -21,7 +21,7 @@
 	});
 </script>
 
-<li>
+<li class:retired={!log.monitoring}>
 	<a class="name" href="/log/{log.log_id}">{log.name}</a>
 	{#if latest_sth}
 		<span>
@@ -31,7 +31,12 @@
 			<span class="icon">latency</span> <time datetime={lsth_effective_timestamp.toISOString()}>{rough_duration(latency_ms)}</time>
 		</span>
 	{/if}
-	<a class="endpoint" href="{log.endpoint_url}">
+	{#if !log.monitoring}
+	<span>
+		<span class="icon">pause</span> retired
+	</span>
+	{/if}
+	<a class="endpoint" href="{log.endpoint_url}" target="_blank" rel="noopener">
 		<span class="icon">link</span> {log.endpoint_url.replace(/^https:\/\//, "")}
 	</a>
 	{#if log.last_sth_error}
@@ -44,6 +49,10 @@
 <style>
 	li {
 		margin: 5px 0;
+		list-style-type: none;
+	}
+	li.retired {
+		opacity: 0.7;
 	}
 	a.name {
 		display: inline-block;

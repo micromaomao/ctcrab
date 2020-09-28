@@ -50,6 +50,7 @@ export type CtLogs = Array<BasicCtLogInfo>;
 export type BasicCtLogInfo = {
 	log_id: string,
 	name: string,
+	monitoring: boolean,
 	endpoint_url: string,
 	latest_sth: BasicSthInfo | null,
 	last_sth_error: string | null
@@ -62,11 +63,11 @@ export type BasicSthInfo = {
 	sth_timestamp: number
 }
 
-export function ctlogs(fetch: FetchFn): Promise<CtLogs> {
-	return get_json<CtLogs>("/ctlogs", fetch);
+export function ctlogs(fetch: FetchFn, include_retired: boolean): Promise<CtLogs> {
+	return get_json<CtLogs>(`/ctlogs?include_retired=${include_retired}`, fetch);
 }
 
-export type CtLogDetail = {
+export type CtLog = {
 	log_id: string,
 	endpoint_url: string,
 	name: string,
@@ -76,6 +77,21 @@ export type CtLogDetail = {
 	last_sth_error: string | null
 }
 
-export function log(fetch: FetchFn, id: string): Promise<CtLogDetail> {
-	return get_json<CtLogDetail>("/log/" + encodeURIComponent(id), fetch);
+export function log(fetch: FetchFn, id: string): Promise<CtLog> {
+	return get_json<CtLog>("/log/" + encodeURIComponent(id), fetch);
+}
+
+export type Sth = {
+	id: number,
+	log_id: string,
+	tree_hash: string,
+	tree_size: number,
+	sth_timestamp: number,
+	received_time: number,
+	signature: string,
+	checked_consistent_with_latest: boolean
+}
+
+export function sth(fetch: FetchFn, log_id: string, sth_id: number): Promise<Sth> {
+	return get_json<Sth>(`/log/${encodeURIComponent(log_id)}/sth/${sth_id}`, fetch);
 }

@@ -8,24 +8,17 @@ extern crate rocket;
 #[macro_use]
 extern crate thiserror;
 
+use std::convert::TryFrom;
 use std::error::Error;
+use std::time::Duration;
 
+use diesel::expression::count::count_star;
 use diesel::prelude::*;
 use rocket::{Request, Response};
-use rocket::http::{Header};
-
-
-
-
-
+use rocket::fairing::{Fairing, Info};
+use rocket::http::Header;
 
 use crate::core::context::CtCrabContext;
-
-
-use rocket::fairing::{Fairing, Info};
-use diesel::expression::count::count_star;
-use std::convert::TryFrom;
-use std::time::Duration;
 
 mod schema;
 mod models;
